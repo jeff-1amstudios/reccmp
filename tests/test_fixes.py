@@ -162,6 +162,88 @@ def test_fix_mov_cmp_jmp_rejects_far_jump_elsewhere():
     assert is_effective is False
 
 
+def test_fix_two_mov_cmp_jmp_allow_two_byte_jump_delta():
+    orig_asm = [
+        "mov eax, dword ptr [ebp-4]",
+        "cmp dword ptr [gCurrent_key (DATA)], eax",
+        "jne 0x1",
+        "mov eax, dword ptr [ebp-8]",
+        "cmp dword ptr [gCurrent_net_game (DATA)], eax",
+        "jne 0x1",
+        "mov ebx, eax",
+        "jmp -0x20",
+    ]
+    recomp_asm = [
+        "mov eax, dword ptr [gCurrent_key (DATA)]",
+        "cmp dword ptr [ebp-4], eax",
+        "jne 0x1",
+        "mov eax, dword ptr [gCurrent_net_game (DATA)]",
+        "cmp dword ptr [ebp-8], eax",
+        "jne 0x1",
+        "mov ebx, eax",
+        "jmp -0x1e",
+    ]
+
+    diff = difflib.SequenceMatcher(None, orig_asm, recomp_asm)
+    is_effective = find_effective_match(diff.get_opcodes(), orig_asm, recomp_asm)
+
+    assert is_effective is True
+
+
+def test_fix_two_mov_cmp_jmp_allow_two_trailing_terminal_inserts():
+    orig_asm = [
+        "mov eax, dword ptr [ebp-4]",
+        "cmp dword ptr [gCurrent_key (DATA)], eax",
+        "jne 0x1",
+        "mov eax, dword ptr [ebp-8]",
+        "cmp dword ptr [gCurrent_net_game (DATA)], eax",
+        "jne 0x1",
+        "mov ebx, eax",
+        "jmp -0x20",
+    ]
+    recomp_asm = [
+        "mov eax, dword ptr [gCurrent_key (DATA)]",
+        "cmp dword ptr [ebp-4], eax",
+        "jne 0x1",
+        "mov eax, dword ptr [gCurrent_net_game (DATA)]",
+        "cmp dword ptr [ebp-8], eax",
+        "jne 0x1",
+        "mov ebx, eax",
+        "jmp -0x1e",
+        "leave",
+        "ret",
+    ]
+
+    diff = difflib.SequenceMatcher(None, orig_asm, recomp_asm)
+    is_effective = find_effective_match(diff.get_opcodes(), orig_asm, recomp_asm)
+
+    assert is_effective is True
+
+
+def test_fix_one_mov_cmp_jmp_rejects_two_trailing_terminal_inserts():
+    orig_asm = [
+        "mov eax, dword ptr [ebp-4]",
+        "cmp dword ptr [gCurrent_key (DATA)], eax",
+        "jne 0x1",
+        "mov ebx, eax",
+        "jmp -0x7b",
+    ]
+    recomp_asm = [
+        "mov eax, dword ptr [gCurrent_key (DATA)]",
+        "cmp dword ptr [ebp-4], eax",
+        "jne 0x1",
+        "mov ebx, eax",
+        "jmp -0x7a",
+        "leave",
+        "ret",
+    ]
+
+    diff = difflib.SequenceMatcher(None, orig_asm, recomp_asm)
+    is_effective = find_effective_match(diff.get_opcodes(), orig_asm, recomp_asm)
+
+    assert is_effective is False
+
+
 def test_fix_cmp_jmp_alone_does_not_enable_near_jump_elsewhere():
     orig_asm = [
         "cmp eax, ebx",
