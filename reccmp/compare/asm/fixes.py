@@ -276,7 +276,7 @@ def patch_fld_fmul(orig: list[str], recomp: list[str]) -> set[int]:
 
 def patch_cmp_swaps(
     codes: Sequence[DiffOpcode], orig_asm: list[str], recomp_asm: list[str]
-) -> set[int]:
+) -> tuple[set[int], set[int]]:
     """Can we resolve the diffs between orig and recomp by patching
     swapped cmp instructions?
     """
@@ -285,6 +285,7 @@ def patch_cmp_swaps(
     additonal_lines_to_include = 3
 
     fixed_lines = set()
+    mov_cmp_jmp_fixed_lines = set()
 
     patch_fns = [
         patch_cmp_jmp,
@@ -303,6 +304,22 @@ def patch_cmp_swaps(
 
         # If the ranges in orig and recomp are not equal, use the shorter one
         for i, j in zip(range(i1, i2), range(j1, j2)):
+            # Keep track of mov+cmp/test+jmp fixes specifically.
+            # We use this as a gate for fallback jump tolerance logic.
+            mov_cmp_patch_lines = patch_mov_cmp_jmp(
+                orig_asm[i : i + additonal_lines_to_include],
+                recomp_asm[j : j + additonal_lines_to_include],
+            )
+            if len(mov_cmp_patch_lines) > 0:
+                mov_cmp_jmp_fixed_lines.update([j + x for x in mov_cmp_patch_lines])
+
+            mov_test_patch_lines = patch_mov_test_jmp(
+                orig_asm[i : i + additonal_lines_to_include],
+                recomp_asm[j : j + additonal_lines_to_include],
+            )
+            if len(mov_test_patch_lines) > 0:
+                mov_cmp_jmp_fixed_lines.update([j + x for x in mov_test_patch_lines])
+
             for fn in patch_fns:
                 this_patch_lines = fn(
                     orig_asm[i : i + additonal_lines_to_include],
@@ -314,7 +331,7 @@ def patch_cmp_swaps(
                     # now that we've fixed these lines, no need to check the other patch strategies for fixing
                     break
 
-    return fixed_lines
+    return fixed_lines, mov_cmp_jmp_fixed_lines
 
 
 def effective_match_possible(orig_asm: list[str], recomp_asm: list[str]) -> bool:
@@ -516,7 +533,7 @@ def find_effective_match(
         if code in ("insert", "replace")
     }
 
-    cmp_swaps = patch_cmp_swaps(codes, orig_asm, recomp_asm)
+    cmp_swaps, mov_cmp_jmp_swaps = patch_cmp_swaps(codes, orig_asm, recomp_asm)
     # This naive result includes lines that already match, so remove those
     naive_swaps = naive_register_replacement(orig_asm, recomp_asm).difference(
         already_equal
@@ -531,7 +548,61 @@ def find_effective_match(
         relocates,
     )
 
-    return corrections.issuperset(recomp_lines_disputed)
+    if corrections.issuperset(recomp_lines_disputed):
+        return True
+
+    # Fallback: if we found at least one mov+cmp/test+jmp fix, allow unresolved
+    # jump displacement differences anywhere in the function when they are all
+    # direct jumps with the same mnemonic and within +/-1.
+    if len(mov_cmp_jmp_swaps) == 0:
+        return False
+
+    unresolved = recomp_lines_disputed.difference(corrections)
+    if len(unresolved) == 0:
+        return True
+
+    for code, i1, i2, j1, j2 in codes:
+        unresolved_here = unresolved.intersection(range(j1, j2))
+        if len(unresolved_here) == 0:
+            continue
+
+        if code != "replace":
+            return False
+
+        if (i2 - i1) != (j2 - j1):
+            return False
+
+        for j in unresolved_here:
+            i = i1 + (j - j1)
+            if not _near_direct_jump_match(orig_asm[i], recomp_asm[j]):
+                return False
+
+    return True
+
+
+_DIRECT_JUMP_HEX_RE = re.compile(r"^-?0x[0-9a-f]+$", re.IGNORECASE)
+
+
+def _near_direct_jump_match(orig_line: str, recomp_line: str) -> bool:
+    orig_mnemonic, _, orig_operand = orig_line.partition(" ")
+    recomp_mnemonic, _, recomp_operand = recomp_line.partition(" ")
+
+    if (
+        not orig_mnemonic.startswith("j")
+        or not recomp_mnemonic.startswith("j")
+        or orig_mnemonic != recomp_mnemonic
+    ):
+        return False
+
+    if not _DIRECT_JUMP_HEX_RE.fullmatch(orig_operand.strip()):
+        return False
+
+    if not _DIRECT_JUMP_HEX_RE.fullmatch(recomp_operand.strip()):
+        return False
+
+    orig_jump = int(orig_operand, 16)
+    recomp_jump = int(recomp_operand, 16)
+    return abs(orig_jump - recomp_jump) <= 1
 
 
 def assert_fixup(asm: AsmExcerpt):
