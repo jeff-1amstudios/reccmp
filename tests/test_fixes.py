@@ -182,6 +182,72 @@ def test_fix_cmp_jmp_alone_does_not_enable_near_jump_elsewhere():
     assert is_effective is False
 
 
+def test_fix_mov_cmp_jmp_allows_near_jump_elsewhere_with_trailing_ret():
+    orig_asm = [
+        "mov eax, dword ptr [gCheckpoint (DATA)]",
+        "mov dword ptr [ebp - 4], eax",
+        "jmp 0x3",
+        "inc dword ptr [ebp - 4]",
+        "mov eax, dword ptr [ebp - 4]",
+        "cmp dword ptr [gCheckpoint_count (DATA)], eax",
+        "jl 0xa",
+        "call IncrementCheckpoint (FUNCTION)",
+        "jmp -0x1c",
+        "leave",
+    ]
+    recomp_asm = [
+        "mov eax, dword ptr [gCheckpoint (DATA)]",
+        "mov dword ptr [ebp - 4], eax",
+        "jmp 0x3",
+        "inc dword ptr [ebp - 4]",
+        "mov eax, dword ptr [gCheckpoint_count (DATA)]",
+        "cmp dword ptr [ebp - 4], eax",
+        "jg 0xa",
+        "call IncrementCheckpoint (FUNCTION)",
+        "jmp -0x1b",
+        "leave",
+        "ret",
+    ]
+
+    diff = difflib.SequenceMatcher(None, orig_asm, recomp_asm)
+    is_effective = find_effective_match(diff.get_opcodes(), orig_asm, recomp_asm)
+
+    assert is_effective is True
+
+
+def test_fix_mov_cmp_jmp_rejects_trailing_non_terminal_insert():
+    orig_asm = [
+        "mov eax, dword ptr [gCheckpoint (DATA)]",
+        "mov dword ptr [ebp - 4], eax",
+        "jmp 0x3",
+        "inc dword ptr [ebp - 4]",
+        "mov eax, dword ptr [ebp - 4]",
+        "cmp dword ptr [gCheckpoint_count (DATA)], eax",
+        "jl 0xa",
+        "call IncrementCheckpoint (FUNCTION)",
+        "jmp -0x1c",
+        "leave",
+    ]
+    recomp_asm = [
+        "mov eax, dword ptr [gCheckpoint (DATA)]",
+        "mov dword ptr [ebp - 4], eax",
+        "jmp 0x3",
+        "inc dword ptr [ebp - 4]",
+        "mov eax, dword ptr [gCheckpoint_count (DATA)]",
+        "cmp dword ptr [ebp - 4], eax",
+        "jg 0xa",
+        "call IncrementCheckpoint (FUNCTION)",
+        "jmp -0x1b",
+        "leave",
+        "push eax",
+    ]
+
+    diff = difflib.SequenceMatcher(None, orig_asm, recomp_asm)
+    is_effective = find_effective_match(diff.get_opcodes(), orig_asm, recomp_asm)
+
+    assert is_effective is False
+
+
 def test_fix_fld_fmul_valid():
 
     orig_asm = [

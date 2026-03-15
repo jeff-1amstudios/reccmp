@@ -335,10 +335,18 @@ def patch_cmp_swaps(
 
 
 def effective_match_possible(orig_asm: list[str], recomp_asm: list[str]) -> bool:
-    # We can only declare an effective match based on the text
-    # so you need the same amount of "stuff" in each
+    # We can only declare an effective match based on text.
+    # Generally this requires equal instruction counts, but we allow
+    # a single trailing terminal instruction to account for minor codegen
+    # shape differences (e.g. explicit `ret`).
     if len(orig_asm) != len(recomp_asm):
-        return False
+        if abs(len(orig_asm) - len(recomp_asm)) != 1:
+            return False
+
+        longer_asm = orig_asm if len(orig_asm) > len(recomp_asm) else recomp_asm
+        mnemonic = longer_asm[-1].split(" ", 1)[0].lower()
+        if mnemonic not in {"ret", "nop"}:
+            return False
 
     # mnemonic_orig = [inst.partition(" ")[0] for inst in orig_asm]
     # mnemonic_recomp = [inst.partition(" ")[0] for inst in recomp_asm]
@@ -508,9 +516,8 @@ def naive_register_replacement(orig_asm: list[str], recomp_asm: list[str]) -> se
     orig_scrubbed = orig_raw.split("\n")
     recomp_scrubbed = recomp_raw.split("\n")
 
-    return {
-        j for j in range(len(recomp_scrubbed)) if orig_scrubbed[j] == recomp_scrubbed[j]
-    }
+    compare_len = min(len(orig_scrubbed), len(recomp_scrubbed))
+    return {j for j in range(compare_len) if orig_scrubbed[j] == recomp_scrubbed[j]}
 
 
 def find_effective_match(
@@ -561,9 +568,19 @@ def find_effective_match(
     if len(unresolved) == 0:
         return True
 
+    trailing_terminal_unresolved = set()
+
     for code, i1, i2, j1, j2 in codes:
         unresolved_here = unresolved.intersection(range(j1, j2))
         if len(unresolved_here) == 0:
+            continue
+
+        if code == "insert":
+            if not _allowed_trailing_terminal_insert(
+                unresolved_here, j2, len(recomp_asm), recomp_asm
+            ):
+                return False
+            trailing_terminal_unresolved.update(unresolved_here)
             continue
 
         if code != "replace":
@@ -576,6 +593,9 @@ def find_effective_match(
             i = i1 + (j - j1)
             if not _near_direct_jump_match(orig_asm[i], recomp_asm[j]):
                 return False
+
+    if len(trailing_terminal_unresolved) > 1:
+        return False
 
     return True
 
@@ -603,6 +623,23 @@ def _near_direct_jump_match(orig_line: str, recomp_line: str) -> bool:
     orig_jump = int(orig_operand, 16)
     recomp_jump = int(recomp_operand, 16)
     return abs(orig_jump - recomp_jump) <= 1
+
+
+def _allowed_trailing_terminal_insert(
+    unresolved_here: set[int], insert_end: int, recomp_len: int, recomp_asm: list[str]
+) -> bool:
+    if len(unresolved_here) != 1:
+        return False
+
+    (j,) = unresolved_here
+    if j != recomp_len - 1:
+        return False
+
+    if insert_end != recomp_len:
+        return False
+
+    mnemonic = recomp_asm[j].split(" ", 1)[0].lower()
+    return mnemonic in {"ret", "nop"}
 
 
 def assert_fixup(asm: AsmExcerpt):
