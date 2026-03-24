@@ -655,3 +655,24 @@ def test_and_swap_not_allowed():
     is_effective = find_effective_match(diff.get_opcodes(), orig_asm, recomp_asm)
 
     assert is_effective is False
+
+
+def test_memory_store_relocation_not_allowed():
+    """Do not treat moved memory stores as effective matches."""
+
+    orig_asm = [
+        "push edi",
+        "mov dword ptr [ebp - 8], 0",
+        "mov dword ptr [ebp - 4], gPed_gibs[0].actor (DATA)",
+    ]
+
+    recomp_asm = [
+        "push edi",
+        "mov dword ptr [ebp - 4], gPed_gibs[0].actor (DATA)",
+        "mov dword ptr [ebp - 8], 0",
+    ]
+
+    diff = difflib.SequenceMatcher(None, orig_asm, recomp_asm)
+    is_effective = find_effective_match(diff.get_opcodes(), orig_asm, recomp_asm)
+
+    assert is_effective is False

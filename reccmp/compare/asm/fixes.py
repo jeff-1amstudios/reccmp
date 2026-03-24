@@ -284,8 +284,8 @@ def patch_cmp_swaps(
     # number of additional lines to send to the patcher when considering each diff
     additonal_lines_to_include = 3
 
-    fixed_lines = set()
-    mov_cmp_jmp_fixed_lines = set()
+    fixed_lines: set[int] = set()
+    mov_cmp_jmp_fixed_lines: set[int] = set()
     mov_cmp_jmp_patterns: set[tuple[int, ...]] = set()
 
     patch_fns = [
@@ -350,7 +350,9 @@ def effective_match_possible(orig_asm: list[str], recomp_asm: list[str]) -> bool
             return False
 
         longer_asm = orig_asm if len(orig_asm) > len(recomp_asm) else recomp_asm
-        trailing_mnemonics = [line.split(" ", 1)[0].lower() for line in longer_asm[-len_diff:]]
+        trailing_mnemonics = [
+            line.split(" ", 1)[0].lower() for line in longer_asm[-len_diff:]
+        ]
         if any(mnemonic not in TERMINAL_MNEMONICS for mnemonic in trailing_mnemonics):
             return False
 
@@ -433,6 +435,10 @@ def _is_relocatable(instr: str) -> bool:
     Excludes certain instructions whose relocation will always change the logic
     to be considered for an effective match.
     """
+    # Any memory operand can alias with nearby loads/stores, and this matcher
+    # does not model memory dependencies. Keep relocation register/immediate-only.
+    if "[" in instr:
+        return False
     if instr.startswith("start +"):
         # Do not relocate jump table entries (this most likely influences the behaviour)
         return False
@@ -531,6 +537,7 @@ def find_effective_match(
 ) -> bool:
     """Check whether the two sequences of instructions are an effective match.
     Meaning: do they differ only by instruction order or register selection?"""
+    # pylint: disable=too-many-return-statements
     if not effective_match_possible(orig_asm, recomp_asm):
         return False
 
