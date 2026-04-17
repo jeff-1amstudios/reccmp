@@ -99,14 +99,17 @@ def patch_mov_compare_jmp(
         cmp_index in (-1, 0, len(orig) - 1)
         or
         # recomp should also have a cmp in the same line
-        not recomp[cmp_index].startswith(cmp_instruction)
+        cmp_index >= len(recomp)
+        or not recomp[cmp_index].startswith(cmp_instruction)
         or
         # line before cmp must be a mov
         not orig[cmp_index - 1].startswith("mov")
+        or cmp_index - 1 >= len(recomp)
         or not recomp[cmp_index - 1].startswith("mov")
         or
         # if the last lines are not a compatible jump difference
-        not jump_swap_ok(orig[cmp_index + 1], recomp[cmp_index + 1])
+        cmp_index + 1 >= len(recomp)
+        or not jump_swap_ok(orig[cmp_index + 1], recomp[cmp_index + 1])
     ):
         return set()
 
@@ -214,10 +217,12 @@ def patch_compare_jmp(
         cmp_index in (-1, len(orig) - 1)
         or
         # recomp should also have a cmp in the same line
-        not recomp[cmp_index].startswith(cmp_instruction)
+        cmp_index >= len(recomp)
+        or not recomp[cmp_index].startswith(cmp_instruction)
         or
         # if the last lines are not a compatible jump difference
-        not jump_swap_ok(orig[cmp_index + 1], recomp[cmp_index + 1])
+        cmp_index + 1 >= len(recomp)
+        or not jump_swap_ok(orig[cmp_index + 1], recomp[cmp_index + 1])
     ):
         return set()
 
@@ -251,11 +256,14 @@ def patch_fld_fmul(orig: list[str], recomp: list[str]) -> set[int]:
         fld_index in (-1, len(orig) - 1)
         or
         # recomp should also have a fld in the same line
-        not recomp[fld_index].startswith("fld")
+        fld_index >= len(recomp)
+        or not recomp[fld_index].startswith("fld")
     ):
         return set()
 
     _, _, orig_operand_a = orig[fld_index].partition(" ")
+    if fld_index + 1 >= len(orig) or fld_index + 1 >= len(recomp):
+        return set()
     orig_mnemonic_b, _, orig_operand_b = orig[fld_index + 1].partition(" ")
 
     _, _, recomp_operand_a = recomp[fld_index].partition(" ")
@@ -390,10 +398,16 @@ def bad_register_swaps(
     rejects = set()
 
     # Foreach `push` instruction where we have excused the diff
-    pushes = [j for j in swaps if recomp_asm[j].startswith("push")]
+    pushes = [
+        j
+        for j in swaps
+        if j < len(recomp_asm) and recomp_asm[j].startswith("push")
+    ]
 
     for j in pushes:
         okay = False
+        if j >= len(orig_asm) or j >= len(recomp_asm):
+            continue
         # Get the operands in each
         reg = (orig_asm[j].partition(" ")[2], recomp_asm[j].partition(" ")[2])
         # If this isn't a register at all, ignore it
@@ -509,6 +523,9 @@ def naive_register_replacement(orig_asm: list[str], recomp_asm: list[str]) -> se
     Return indices from recomp that are now equal to the same index in orig.
     This requires orig and recomp to have the same number of instructions,
     but this is already a requirement for effective match."""
+    if not orig_asm or not recomp_asm:
+        return set()
+
     orig_raw = "\n".join(orig_asm)
     recomp_raw = "\n".join(recomp_asm)
 

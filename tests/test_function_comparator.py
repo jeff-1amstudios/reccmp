@@ -40,6 +40,7 @@ def compare_functions(
     recomp: bytes,
     report: ReccmpReportProtocol,
     is_relocated_addr: Callable[[int], bool] | None = None,
+    show_all_diffs: bool = True,
 ) -> FunctionCompareResult:
     """Executes `FunctionComparator.compare_function` on the provided binary code."""
 
@@ -58,6 +59,7 @@ def compare_functions(
     recomp_bin.is_debug = Mock(return_value=False)
 
     comp = FunctionComparator(db, lines_db, orig_bin, recomp_bin, report, "unittest")
+    comp.show_all_diffs = show_all_diffs
 
     return comp.compare_function(
         ReccmpMatch(

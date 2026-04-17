@@ -242,6 +242,7 @@ def test_compare_function_effective_match():
 
     pdb = Mock(spec=CvdumpAnalysis)
     compare = Compare(orig_bin, recomp_bin, pdb, "HELLO")
+    compare.show_all_diffs = True
 
     with get_db(compare).batch() as batch:
         batch.set(ImageId.RECOMP, 0, type=EntityType.FUNCTION, name="test", size=5)
