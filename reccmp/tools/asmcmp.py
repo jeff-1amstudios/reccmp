@@ -174,6 +174,11 @@ def parse_args() -> argparse.Namespace:
         "--no-color", "-n", action="store_true", help="Do not color the output"
     )
     parser.add_argument(
+        "--show-all-diffs",
+        action="store_true",
+        help="Show all diff lines, including those considered 'effective' by default filtering.",
+    )
+    parser.add_argument(
         "--svg", "-S", metavar="<file>", help="Generate SVG graphic of progress"
     )
     parser.add_argument("--svg-icon", metavar="icon", help="Icon to use in SVG (PNG)")
@@ -215,6 +220,8 @@ def main():
 
     if args.loglevel == logging.DEBUG:
         compare.debug = True
+
+    compare.show_all_diffs = args.show_all_diffs
 
     print()
 

@@ -7,7 +7,7 @@ from typing import Callable, Iterator, NamedTuple
 from reccmp.compare.lines import LinesDb
 from reccmp.difflib import DiffOpcode
 from reccmp.compare.pinned_sequences import SequenceMatcherWithPins
-from reccmp.compare.asm.fixes import assert_fixup, find_effective_match
+from reccmp.compare.asm.fixes import assert_fixup, find_effective_match, patch_cmp_swaps, naive_register_replacement, bad_register_swaps, relocate_instructions
 from reccmp.compare.asm.parse import AsmExcerpt, ParseAsm
 from reccmp.compare.asm.replacement import (
     AddrLookupProtocol,
@@ -96,6 +96,7 @@ class FunctionComparator:
     runid: str = timestamp_string()
     debug: bool = False
     is_32bit: bool = True
+    show_all_diffs: bool = False
 
     def __post_init__(self):
         self.orig_sanitize = ParseAsm(
@@ -221,12 +222,50 @@ class FunctionComparator:
         recomp_asm = [x[1] for x in recomp]
 
         diff = SequenceMatcherWithPins(orig_asm, recomp_asm, split_points)
+        all_opcodes = diff.get_opcodes()
+
+        if self.show_all_diffs:
+            filtered_opcodes = all_opcodes
+        else:
+            effective_recomp_indices: set[int] = set()
+
+            fixed_cmp_swaps, _, _ = patch_cmp_swaps(all_opcodes, orig_asm, recomp_asm)
+            effective_recomp_indices.update(fixed_cmp_swaps)
+
+            if len(orig_asm) == len(recomp_asm):
+                naive_swaps_indices = naive_register_replacement(orig_asm, recomp_asm)
+                bad_swaps_indices = bad_register_swaps(
+                    naive_swaps_indices, orig_asm, recomp_asm
+                )
+                effective_recomp_indices.update(
+                    naive_swaps_indices.difference(bad_swaps_indices)
+                )
+
+            relocated_indices = relocate_instructions(all_opcodes, orig_asm, recomp_asm)
+            effective_recomp_indices.update(relocated_indices)
+
+            filtered_opcodes = []
+            for tag, i1, i2, j1, j2 in all_opcodes:
+                if tag == "equal":
+                    filtered_opcodes.append((tag, i1, i2, j1, j2))
+                else:
+                    is_opcode_fully_effective = True
+                    if j1 < j2:
+                        for j in range(j1, j2):
+                            if j not in effective_recomp_indices:
+                                is_opcode_fully_effective = False
+                                break
+                    else:
+                        is_opcode_fully_effective = False
+
+                    if not is_opcode_fully_effective:
+                        filtered_opcodes.append((tag, i1, i2, j1, j2))
 
         if diff.ratio() != 1.0:
             # Check whether we can resolve register swaps which are actually
             # perfect matches modulo compiler entropy.
             is_effective = find_effective_match(
-                diff.get_opcodes(), orig_asm, recomp_asm
+                all_opcodes, orig_asm, recomp_asm
             )
         else:
             is_effective = False
@@ -251,7 +290,7 @@ class FunctionComparator:
         ]
 
         return FunctionCompareResult(
-            codes=diff.get_opcodes(),
+            codes=filtered_opcodes,
             orig_inst=orig_for_printing,
             recomp_inst=recomp_for_printing,
             is_effective_match=is_effective,

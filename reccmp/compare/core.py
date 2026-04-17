@@ -69,6 +69,7 @@ class Compare:
     # pylint: disable=too-many-instance-attributes
     _db: EntityDb
     _debug: bool
+    _show_all_diffs: bool
     _lines_db: LinesDb
     code_files: list[TextFile]
     cvdump_analysis: CvdumpAnalysis
@@ -107,6 +108,7 @@ class Compare:
 
         # Controls whether we dump the asm output to a file
         self._debug = False
+        self._show_all_diffs = False
 
         self._lines_db = LinesDb()
         self._db = EntityDb()
@@ -218,6 +220,15 @@ class Compare:
     def debug(self, debug: bool):
         self._debug = debug
         self.function_comparator.debug = debug
+
+    @property
+    def show_all_diffs(self) -> bool:
+        return self._show_all_diffs
+
+    @show_all_diffs.setter
+    def show_all_diffs(self, show_all_diffs: bool):
+        self._show_all_diffs = show_all_diffs
+        self.function_comparator.show_all_diffs = show_all_diffs
 
     def _compare_vtable(self, match: ReccmpMatch) -> DiffReport:
         vtable_size = match.size
